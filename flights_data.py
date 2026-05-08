@@ -1,134 +1,237 @@
+"""
+Database access layer for the flight delay analysis project.
+
+This module contains all SQL queries used by the CLI. The implementation is
+aligned with the real flights_v2.sqlite3 schema and consistently uses the
+DEPARTURE_DELAY column from the flights table.
+"""
+
+from __future__ import annotations
+
 from sqlalchemy import create_engine, text
 
-DELAY_THRESHOLD = 20
+DATABASE_URL = "sqlite:///data/flights_v2.sqlite3"
+engine = create_engine(DATABASE_URL)
 
-# Einzelner Flug per ID
-QUERY_FLIGHT_BY_ID = """
-SELECT
-    flights.ID,
-    flights.ID AS FLIGHT_ID,
-    flights.ORIGIN_AIRPORT,
-    flights.DESTINATION_AIRPORT,
-    airlines.AIRLINE AS AIRLINE,
-    flights.DEPARTURE_DELAY AS DELAY
-FROM flights
-JOIN airlines ON flights.AIRLINE = airlines.ID
-WHERE flights.ID = :id
+DELAY_THRESHOLD_MINUTES = 20
+IATA_CODE_LENGTH = 3
+
+BASE_RESULT_COLUMNS = """
+    f.ID,
+    a.AIRLINE,
+    f.ORIGIN_AIRPORT,
+    f.DESTINATION_AIRPORT,
+    f.DEPARTURE_DELAY
 """
 
-# Flüge nach Datum
-QUERY_FLIGHTS_BY_DATE = """
+QUERY_FLIGHT_BY_ID = f"""
 SELECT
-    flights.ID,
-    flights.ID AS FLIGHT_ID,
-    flights.ORIGIN_AIRPORT,
-    flights.DESTINATION_AIRPORT,
-    airlines.AIRLINE AS AIRLINE,
-    flights.DEPARTURE_DELAY AS DELAY
-FROM flights
-JOIN airlines ON flights.AIRLINE = airlines.ID
-WHERE CAST(flights.DAY AS INTEGER) = :day
-  AND CAST(flights.MONTH AS INTEGER) = :month
-  AND CAST(flights.YEAR AS INTEGER) = :year
-ORDER BY flights.ID
+    {BASE_RESULT_COLUMNS}
+FROM flights f
+JOIN airlines a
+    ON f.AIRLINE = a.ID
+WHERE f.ID = :id
+ORDER BY f.ID
 """
 
-# Verspätete Flüge nach Airline – Name, IATA oder Alias
-QUERY_DELAYED_FLIGHTS_BY_AIRLINE = """
+QUERY_FLIGHTS_BY_DATE = f"""
 SELECT
-    flights.ID,
-    flights.ID AS FLIGHT_ID,
-    flights.ORIGIN_AIRPORT,
-    flights.DESTINATION_AIRPORT,
-    airlines.AIRLINE AS AIRLINE,
-    flights.DEPARTURE_DELAY AS DELAY
-FROM flights
-JOIN airlines ON flights.AIRLINE = airlines.ID
-WHERE (
-    LOWER(airlines.AIRLINE)   = LOWER(:airline)
-    OR UPPER(airlines.IATA_CODE) = UPPER(:airline)
-    OR LOWER(airlines.ALIAS)  = LOWER(:airline)
-)
-  AND flights.DEPARTURE_DELAY IS NOT NULL
-  AND TRIM(CAST(flights.DEPARTURE_DELAY AS TEXT)) != ''
-  AND CAST(flights.DEPARTURE_DELAY AS INTEGER) >= :delay_threshold
-ORDER BY CAST(flights.DEPARTURE_DELAY AS INTEGER) DESC, flights.ID
+    {BASE_RESULT_COLUMNS}
+FROM flights f
+JOIN airlines a
+    ON f.AIRLINE = a.ID
+WHERE f.DAY = :day
+  AND f.MONTH = :month
+  AND f.YEAR = :year
+ORDER BY f.ID
 """
 
-# Verspätete Flüge nach Abflug-Airport (IATA)
-QUERY_DELAYED_FLIGHTS_BY_AIRPORT = """
+QUERY_DELAYED_FLIGHTS_BY_AIRLINE_NAME = f"""
 SELECT
-    flights.ID,
-    flights.ID AS FLIGHT_ID,
-    flights.ORIGIN_AIRPORT,
-    flights.DESTINATION_AIRPORT,
-    airlines.AIRLINE AS AIRLINE,
-    flights.DEPARTURE_DELAY AS DELAY
-FROM flights
-JOIN airlines ON flights.AIRLINE = airlines.ID
-WHERE UPPER(flights.ORIGIN_AIRPORT) = UPPER(:airport)
-  AND flights.DEPARTURE_DELAY IS NOT NULL
-  AND TRIM(CAST(flights.DEPARTURE_DELAY AS TEXT)) != ''
-  AND CAST(flights.DEPARTURE_DELAY AS INTEGER) >= :delay_threshold
-ORDER BY CAST(flights.DEPARTURE_DELAY AS INTEGER) DESC, flights.ID
+    {BASE_RESULT_COLUMNS}
+FROM flights f
+JOIN airlines a
+    ON f.AIRLINE = a.ID
+WHERE UPPER(a.AIRLINE) = UPPER(:airline_name)
+  AND f.DEPARTURE_DELAY >= :delay_threshold
+ORDER BY f.DEPARTURE_DELAY DESC, f.ID
 """
 
-# Airport-Suche nach IATA, Stadt oder State
-QUERY_AIRPORT_SEARCH = """
+QUERY_DELAYED_FLIGHTS_BY_AIRLINE_IATA = f"""
+SELECT
+    {BASE_RESULT_COLUMNS}
+FROM flights f
+JOIN airlines a
+    ON f.AIRLINE = a.ID
+WHERE CAST(a.IATA_CODE AS TEXT) = :iata_code
+  AND f.DEPARTURE_DELAY >= :delay_threshold
+ORDER BY f.DEPARTURE_DELAY DESC, f.ID
+"""
+
+QUERY_DELAYED_FLIGHTS_BY_AIRLINE_ALIAS = f"""
+SELECT
+    {BASE_RESULT_COLUMNS}
+FROM flights f
+JOIN airlines a
+    ON f.AIRLINE = a.ID
+WHERE CAST(a.ALIAS AS TEXT) = :alias
+  AND f.DEPARTURE_DELAY >= :delay_threshold
+ORDER BY f.DEPARTURE_DELAY DESC, f.ID
+"""
+
+QUERY_DELAYED_FLIGHTS_BY_ORIGIN = f"""
+SELECT
+    {BASE_RESULT_COLUMNS}
+FROM flights f
+JOIN airlines a
+    ON f.AIRLINE = a.ID
+WHERE UPPER(f.ORIGIN_AIRPORT) = UPPER(:origin_airport)
+  AND f.DEPARTURE_DELAY >= :delay_threshold
+ORDER BY f.DEPARTURE_DELAY DESC, f.ID
+"""
+
+QUERY_SEARCH_AIRPORTS_BY_CODE = """
 SELECT
     IATA_CODE,
     AIRPORT,
     CITY,
     STATE,
-    COUNTRY
+    COUNTRY,
+    LATITUDE,
+    LONGITUDE
 FROM airports
-WHERE
-      UPPER(IATA_CODE) = UPPER(:term)
-   OR UPPER(CITY)      = UPPER(:term)
-   OR UPPER(STATE)     = UPPER(:term)
+WHERE UPPER(IATA_CODE) = UPPER(:term)
 ORDER BY IATA_CODE
 """
 
-DATABASE_URL = "sqlite:///data/flights_v2.sqlite3"
-engine = create_engine(DATABASE_URL)
+QUERY_SEARCH_AIRPORTS_BY_CITY_OR_STATE = """
+SELECT
+    IATA_CODE,
+    AIRPORT,
+    CITY,
+    STATE,
+    COUNTRY,
+    LATITUDE,
+    LONGITUDE
+FROM airports
+WHERE UPPER(CITY) LIKE UPPER(:pattern)
+   OR UPPER(STATE) LIKE UPPER(:pattern)
+ORDER BY COUNTRY, STATE, CITY, AIRPORT
+"""
 
 
-def execute_query(query, params):
-    """Execute a parameterized SQL query and return all matching rows."""
+def execute_query(query: str, params: dict | None = None):
+    """
+    Execute an SQL query and return all result rows.
+
+    If an exception occurs, an empty list is returned.
+    """
+    if params is None:
+        params = {}
+
     try:
-        with engine.connect() as conn:
-            result = conn.execute(text(query), params or {})
+        with engine.connect() as connection:
+            result = connection.execute(text(query), params)
             return result.fetchall()
-    except Exception as e:
-        print("Query error:", e)
+    except Exception as exc:
+        print("Query error:", exc)
         return []
 
 
-def get_flight_by_id(flight_id):
-    """Return the flight record for one specific flight ID."""
-    params = {"id": flight_id}
-    return execute_query(QUERY_FLIGHT_BY_ID, params)
+def get_flight_by_id(flight_id: int):
+    """
+    Return the flight matching one database ID.
+    """
+    return execute_query(QUERY_FLIGHT_BY_ID, {"id": flight_id})
 
 
-def get_flights_by_date(day, month, year):
-    """Return all flights for a given day, month, and year."""
-    params = {"day": day, "month": month, "year": year}
+def get_flights_by_date(day: int, month: int, year: int):
+    """
+    Return all flights for one calendar date.
+    """
+    params = {
+        "day": day,
+        "month": str(month),
+        "year": str(year),
+    }
     return execute_query(QUERY_FLIGHTS_BY_DATE, params)
 
 
-def get_delayed_flights_by_airline(airline_name):
-    """Return all delayed flights for one airline (name, IATA code, or alias)."""
-    params = {"airline": airline_name, "delay_threshold": DELAY_THRESHOLD}
-    return execute_query(QUERY_DELAYED_FLIGHTS_BY_AIRLINE, params)
+def get_delayed_flights_by_airline(airline_input: str):
+    """
+    Return delayed flights for one airline.
+
+    Accepted input types:
+    - full airline name
+    - airline IATA code
+    - airline alias
+    """
+    normalized_input = airline_input.strip()
+
+    if not normalized_input:
+        return []
+
+    threshold_params = {"delay_threshold": DELAY_THRESHOLD_MINUTES}
+
+    if len(normalized_input) <= IATA_CODE_LENGTH and normalized_input.isalnum():
+        iata_results = execute_query(
+            QUERY_DELAYED_FLIGHTS_BY_AIRLINE_IATA,
+            {
+                "iata_code": normalized_input.upper(),
+                **threshold_params,
+            },
+        )
+        if iata_results:
+            return iata_results
+
+        alias_results = execute_query(
+            QUERY_DELAYED_FLIGHTS_BY_AIRLINE_ALIAS,
+            {
+                "alias": normalized_input,
+                **threshold_params,
+            },
+        )
+        if alias_results:
+            return alias_results
+
+    return execute_query(
+        QUERY_DELAYED_FLIGHTS_BY_AIRLINE_NAME,
+        {
+            "airline_name": normalized_input,
+            **threshold_params,
+        },
+    )
 
 
-def get_delayed_flights_by_airport(airport_code):
-    """Return all delayed flights departing from one origin airport (IATA)."""
-    params = {"airport": airport_code, "delay_threshold": DELAY_THRESHOLD}
-    return execute_query(QUERY_DELAYED_FLIGHTS_BY_AIRPORT, params)
+def get_delayed_flights_by_airport(origin_airport: str):
+    """
+    Return delayed flights for one origin airport IATA code.
+    """
+    return execute_query(
+        QUERY_DELAYED_FLIGHTS_BY_ORIGIN,
+        {
+            "origin_airport": origin_airport.upper(),
+            "delay_threshold": DELAY_THRESHOLD_MINUTES,
+        },
+    )
 
 
-def search_airports(term):
-    """Search airports by IATA code, city or state."""
-    params = {"term": term}
-    return execute_query(QUERY_AIRPORT_SEARCH, params)
+def search_airports(term: str):
+    """
+    Search airports by IATA code, city, or state.
+    """
+    normalized_term = term.strip()
+
+    if not normalized_term:
+        return []
+
+    if len(normalized_term) == IATA_CODE_LENGTH and normalized_term.isalpha():
+        return execute_query(
+            QUERY_SEARCH_AIRPORTS_BY_CODE,
+            {"term": normalized_term.upper()},
+        )
+
+    return execute_query(
+        QUERY_SEARCH_AIRPORTS_BY_CITY_OR_STATE,
+        {"pattern": f"%{normalized_term}%"},
+    )
