@@ -58,7 +58,7 @@ def flights_by_date():
     valid = False
     while not valid:
         try:
-            date_input = input("Enter date in DD/MM/YYYY format: ")
+            date_input = input("Enter date in DD/MM/YYYY format (01/01/2015 and 01/04/2015): ")
             date = datetime.strptime(date_input, '%d/%m/%Y')
         except ValueError as e:
             print("Try again...", e)
@@ -75,6 +75,8 @@ def print_results(results):
     Each object *has* to contain the columns:
     FLIGHT_ID, ORIGIN_AIRPORT, DESTINATION_AIRPORT, AIRLINE, and DELAY.
     """
+    if results is None:
+        results = []
     print(f"Got {len(results)} results.")
     for result in results:
         # turn result into dictionary
@@ -120,8 +122,8 @@ def show_menu_and_get_input():
 """
 Function Dispatch Dictionary
 """
-FUNCTIONS = { 1: (flight_by_id, "Show flight by ID"),
-              2: (flights_by_date, "Show flights by date"),
+FUNCTIONS = { 1: (flight_by_id, "Show flight by ID (one result)"),
+              2: (flights_by_date, "Show flights by date (Severeal Thousand results"),
               3: (delayed_flights_by_airline, "Delayed flights by airline"),
               4: (delayed_flights_by_airport, "Delayed flights by origin airport"),
               5: (quit, "Exit")
