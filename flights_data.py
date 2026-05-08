@@ -57,7 +57,11 @@ SELECT
     flights.DEPARTURE_DELAY AS DELAY
 FROM flights
 JOIN airlines ON flights.AIRLINE = airlines.ID
-WHERE LOWER(airlines.AIRLINE) = LOWER(:airline)
+WHERE (
+    LOWER(airlines.AIRLINE) = LOWER(:airline)
+    OR UPPER(airlines.IATA_CODE) = UPPER(:airline)
+    OR LOWER(airlines.ALIAS) = LOWER(:airline)
+)
   AND flights.DEPARTURE_DELAY IS NOT NULL
   AND TRIM(CAST(flights.DEPARTURE_DELAY AS TEXT)) != ''
   AND CAST(flights.DEPARTURE_DELAY AS INTEGER) >= :delay_threshold
@@ -87,7 +91,7 @@ ORDER BY CAST(flights.DEPARTURE_DELAY AS INTEGER) DESC, flights.ID
 """
 
 # Define the database URL
-DATABASE_URL = "sqlite:///data/flights.sqlite3"
+DATABASE_URL = "sqlite:///data/flights_v2.sqlite3"
 
 # Create the engine
 engine = create_engine(DATABASE_URL)
