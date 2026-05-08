@@ -1,9 +1,9 @@
 import csv
 import os
+
 from datetime import datetime
-
 from sqlalchemy.exc import SQLAlchemyError
-
+import visualizations
 import flights_data
 
 IATA_LENGTH = 3
@@ -168,6 +168,25 @@ def print_results(results):
         else:
             print("Invalid filename. Export canceled.")
 
+def create_visualizations():
+    """
+    Create and save visualizations.
+    """
+    print("\nVisualization Menu:")
+    print("1. Percentage of delayed flights per airline")
+    print("2. Back")
+
+    while True:
+        choice = input("Choose an option: ").strip()
+
+        if choice == "1":
+            visualizations.plot_delayed_percentage_by_airline()
+            return
+        elif choice == "2":
+            return
+        else:
+            print("Try again...")
+
 
 def show_menu_and_get_input():
     """Show the menu, validate the user's selection, and return the function."""
@@ -188,9 +207,10 @@ def show_menu_and_get_input():
 FUNCTIONS = {
     1: (flight_by_id, "Show flight by ID"),
     2: (flights_by_date, "Show flights by date"),
-    3: (delayed_flights_by_airline, "Delayed flights by airline (Enter full name or IATA or alias)"),
-    4: (delayed_flights_by_airport, "Delayed flights by origin (Enter IATA airport code or city or state)"),
-    5: (quit, "Exit"),
+    3: (delayed_flights_by_airline, "Delayed flights by airline (full name / IATA / alias)"),
+    4: (delayed_flights_by_airport, "Delayed flights by origin airport"),
+    5: (create_visualizations, "Create visualizations"),
+    6: (quit, "Exit"),
 }
 
 
